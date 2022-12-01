@@ -1,0 +1,116 @@
+---
+format_version: '11'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: android
+
+pipelines:
+  benchmark:
+    stages:
+    - benchmark: {}
+
+stages:
+  benchmark:
+    workflows:
+    {{ range $j, $v := (ds "values").variations -}}
+    {{- range $j, $java := $v.java_version -}}
+    {{- range $k, $machine := $v.machine_types -}}
+    {{- range $l, $stack := $v.stacks -}}
+    {{- $name := (print "java-" $java "-" $machine "-" $stack) -}}
+    - {{$name}}: {}
+    {{ end -}}
+    {{ end -}}
+    {{ end -}}
+    {{ end }}
+workflows:
+  _build:
+    steps:
+    - activate-ssh-key@4: {}
+    - git-clone@6:
+        inputs:
+        - update_submodules: 'no'
+    - install-missing-android-tools@3:
+        inputs:
+        - gradlew_path: "$PROJECT_LOCATION/gradlew"
+    - gradle-runner@2:
+        inputs:
+        - gradle_task: knitCheck $CI_GRADLE_ARG_PROPERTIES
+        - gradle_file: ''
+        - gradlew_path: "$BITRISE_SOURCE_DIR/gradlew"
+        title: knitCheck
+    - gradle-runner@2:
+        inputs:
+        - gradle_task: ktlintCheck $CI_GRADLE_ARG_PROPERTIES
+        - gradle_file: ''
+        - gradlew_path: "$BITRISE_SOURCE_DIR/gradlew"
+        title: ktlintCheck
+    - gradle-runner@2:
+        inputs:
+        - gradle_task: detekt $CI_GRADLE_ARG_PROPERTIES
+        - gradle_file: ''
+        - gradlew_path: "$BITRISE_SOURCE_DIR/gradlew"
+        title: detekt
+    - gradle-runner@2:
+        inputs:
+        - gradle_task: vector-app:lintGplayRelease $CI_GRADLE_ARG_PROPERTIES
+        - gradle_file: ''
+        - gradlew_path: "$BITRISE_SOURCE_DIR/gradlew"
+        title: vector-app:lintGplayRelease
+    - gradle-runner@2:
+        inputs:
+        - gradle_task: assembleGplayDebug
+        - gradle_file: ''
+        - gradlew_path: "$BITRISE_SOURCE_DIR/gradlew"
+        - gradle_options: "--profile"
+        title: Gradle assemble
+    - script@1:
+        title: Collect profiling info
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            set -ex
+
+            mv build/reports/profile/* $BITRISE_DEPLOY_DIR/
+    - deploy-to-bitrise-io@2: {}
+  _java-11:
+    steps:
+    - set-java-version@1:
+        inputs:
+        - set_java_version: '11'
+  _java-17:
+    steps:
+    - set-java-version@1:
+        inputs:
+        - set_java_version: '17'
+  {{ range $j, $v := (ds "values").variations -}}
+  {{- range $j, $java := $v.java_version -}}
+  {{- range $k, $machine := $v.machine_types -}}
+  {{- range $l, $stack := $v.stacks -}}
+  {{- $name := (print "java-" $java "-" $machine "-" $stack) -}}
+  {{$name}}:
+    before_run:
+    - _java-{{$java}}
+    after_run:
+    - _build
+    meta:
+      bitrise.io:
+        stack: {{$stack}}
+        machine_type_id: {{$machine}}
+  {{ end -}}
+  {{ end -}}
+  {{ end -}}
+  {{ end }}
+meta:
+  bitrise.io:
+    stack: linux-docker-android-20.04
+    machine_type_id: elite-xl
+app:
+  envs:
+  - opts:
+      is_expand: false
+    PROJECT_LOCATION: "."
+  - opts:
+      is_expand: false
+    MODULE: app
+  - opts:
+      is_expand: false
+    VARIANT: Debug
